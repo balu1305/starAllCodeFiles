@@ -1,0 +1,684 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>StarQ · Pipeline Tester</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Syne:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+  /* ── Reset & base ──────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0b0e11;
+    --surface:   #12171d;
+    --border:    #1e2830;
+    --accent:    #00e5a0;
+    --accent2:   #0094ff;
+    --warn:      #ff5f5f;
+    --text:      #dce8f0;
+    --muted:     #556070;
+    --mono:      'IBM Plex Mono', monospace;
+    --sans:      'Syne', sans-serif;
+  }
+
+  html, body {
+    min-height: 100vh;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  /* ── Grid layout ───────────────────────────────────── */
+  .shell {
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    min-height: 100vh;
+  }
+
+  /* ── Header ────────────────────────────────────────── */
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 18px 32px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .logo-mark {
+    width: 32px; height: 32px;
+    background: var(--accent);
+    border-radius: 6px;
+    display: grid;
+    place-items: center;
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 15px;
+    color: #000;
+    letter-spacing: -1px;
+    flex-shrink: 0;
+  }
+  header h1 {
+    font-family: var(--sans);
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: -0.5px;
+    color: #fff;
+  }
+  header h1 span { color: var(--accent); }
+  .pill {
+    margin-left: auto;
+    font-size: 11px;
+    font-family: var(--mono);
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 3px 10px;
+  }
+
+  /* ── Main area ─────────────────────────────────────── */
+  main {
+    padding: 40px 32px;
+    max-width: 900px;
+    width: 100%;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+  }
+
+  .section-label {
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+
+  /* ── Drop zone ─────────────────────────────────────── */
+  #drop-zone {
+    border: 1.5px dashed var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    padding: 48px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    position: relative;
+    overflow: hidden;
+  }
+  #drop-zone::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 50% 0%, rgba(0,229,160,.05) 0%, transparent 70%);
+    pointer-events: none;
+  }
+  #drop-zone:hover, #drop-zone.drag-over {
+    border-color: var(--accent);
+    background: #131d19;
+  }
+  #drop-zone.drag-over { border-style: solid; }
+
+  .drop-icon {
+    font-size: 36px;
+    margin-bottom: 12px;
+    display: block;
+  }
+  .drop-title {
+    font-family: var(--sans);
+    font-size: 20px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 6px;
+  }
+  .drop-sub {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .drop-sub strong { color: var(--accent); cursor: pointer; }
+  #file-input { display: none; }
+
+  /* ── Config bar ────────────────────────────────────── */
+  .config-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    flex-wrap: wrap;
+  }
+  .config-bar label {
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .config-bar input {
+    flex: 1;
+    min-width: 200px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    transition: border-color .2s;
+  }
+  .config-bar input:focus { border-color: var(--accent2); }
+
+  /* ── Button ────────────────────────────────────────── */
+  #upload-btn {
+    background: var(--accent);
+    color: #000;
+    border: none;
+    border-radius: 8px;
+    padding: 11px 28px;
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    transition: opacity .15s, transform .1s;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  #upload-btn:disabled { opacity: .4; cursor: not-allowed; transform: none !important; }
+  #upload-btn:not(:disabled):hover { opacity: .88; transform: translateY(-1px); }
+
+  /* ── Status bar ────────────────────────────────────── */
+  #status-bar {
+    display: none;
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 12px;
+    border: 1px solid transparent;
+    align-items: center;
+    gap: 10px;
+  }
+  #status-bar.show { display: flex; }
+  #status-bar.info  { background: #0d1a2e; border-color: var(--accent2); color: var(--accent2); }
+  #status-bar.ok    { background: #0c1e17; border-color: var(--accent);  color: var(--accent); }
+  #status-bar.error { background: #1e0d0d; border-color: var(--warn);    color: var(--warn); }
+
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Results ───────────────────────────────────────── */
+  #results { display: none; }
+  #results.show { display: block; }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    transition: border-color .2s;
+  }
+  .stat-card:hover { border-color: var(--accent); }
+  .stat-val {
+    font-family: var(--sans);
+    font-size: 28px;
+    font-weight: 800;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .stat-key {
+    margin-top: 4px;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: .5px;
+  }
+
+  /* ── Table ─────────────────────────────────────────── */
+  .table-wrap {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 28px;
+  }
+  .table-head {
+    background: var(--surface);
+    padding: 10px 16px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .table-head .badge {
+    background: var(--accent);
+    color: #000;
+    border-radius: 20px;
+    padding: 2px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+  .tbl-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th {
+    background: #0f1419;
+    padding: 9px 12px;
+    text-align: left;
+    color: var(--muted);
+    font-weight: 500;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--text);
+  }
+  td.num { color: var(--accent); font-variant-numeric: tabular-nums; }
+  td.due { color: var(--warn); }
+  td.ok  { color: var(--accent); }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface); }
+
+  /* ── Log console ───────────────────────────────────── */
+  .log-block {
+    background: #080c0f;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    max-height: 200px;
+    overflow-y: auto;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+  .log-block .log-line { display: block; }
+  .log-block .log-line.ok   { color: var(--accent); }
+  .log-block .log-line.info { color: var(--accent2); }
+  .log-block .log-line.err  { color: var(--warn); }
+
+  /* ── Footer ────────────────────────────────────────── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 14px 32px;
+    font-size: 11px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* ── File chip ─────────────────────────────────────── */
+  #file-chip {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 12px;
+  }
+  #file-chip.show { display: flex; }
+  .chip-name { color: var(--text); font-weight: 500; }
+  .chip-size { color: var(--muted); }
+  .chip-remove {
+    margin-left: auto;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1;
+    transition: color .15s;
+  }
+  .chip-remove:hover { color: var(--warn); }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header>
+    <div class="logo-mark">SQ</div>
+    <h1>Star<span>Q</span> Pipeline Tester</h1>
+    <div class="pill">in-memory buffer · no disk write</div>
+  </header>
+
+  <main>
+
+    <!-- Drop zone -->
+    <section>
+      <p class="section-label">01 · Upload CSV</p>
+      <div id="drop-zone">
+        <span class="drop-icon">📂</span>
+        <p class="drop-title">Drop your CSV here</p>
+        <p class="drop-sub">or <strong id="browse-link">browse files</strong> &nbsp;·&nbsp; max 100 MB</p>
+        <input type="file" id="file-input" accept=".csv,.xlsx,.xls" />
+      </div>
+
+      <div id="file-chip" style="margin-top:12px;">
+        <span>📄</span>
+        <span class="chip-name" id="chip-name">—</span>
+        <span class="chip-size" id="chip-size">—</span>
+        <span class="chip-remove" id="chip-remove">✕</span>
+      </div>
+    </section>
+
+    <!-- Config -->
+    <section>
+      <p class="section-label">02 · Backend URL</p>
+      <div class="config-bar">
+        <label>POST endpoint</label>
+        <input type="text" id="backend-url" value="http://localhost:8000/upload" placeholder="http://localhost:8000/upload" />
+        <button id="upload-btn" disabled>
+          <span id="btn-label">Run Pipeline</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- Status -->
+    <div id="status-bar">
+      <span id="status-icon"></span>
+      <span id="status-msg"></span>
+    </div>
+
+    <!-- Results -->
+    <section id="results">
+      <p class="section-label">03 · Results</p>
+
+      <div class="stat-grid" id="stat-grid"></div>
+
+      <!-- Customer preview (top 5 customers with transaction summary) -->
+      <div class="table-wrap" id="customers-table-wrap">
+        <div class="table-head">
+          Customers Preview <span class="badge" id="customers-badge">—</span>
+        </div>
+        <div class="tbl-scroll">
+          <table id="customers-table"></table>
+        </div>
+      </div>
+
+      <!-- Outstanding dues (customers where Total_Due > 0) -->
+      <div class="table-wrap" id="dues-table-wrap">
+        <div class="table-head">
+          Outstanding Dues <span class="badge" id="dues-badge">—</span>
+        </div>
+        <div class="tbl-scroll">
+          <table id="dues-table"></table>
+        </div>
+      </div>
+
+      <p class="section-label" style="margin-top:8px;">Pipeline Log</p>
+      <div class="log-block" id="log-block"></div>
+    </section>
+
+  </main>
+
+  <footer>
+    <span>StarQ ETL · in-memory buffer test harness</span>
+    <span id="ts">—</span>
+  </footer>
+
+</div>
+
+<script>
+  // ── DOM refs ──────────────────────────────────────────────────────────────
+  const dropZone   = document.getElementById('drop-zone');
+  const fileInput  = document.getElementById('file-input');
+  const browseLink = document.getElementById('browse-link');
+  const fileChip   = document.getElementById('file-chip');
+  const chipName   = document.getElementById('chip-name');
+  const chipSize   = document.getElementById('chip-size');
+  const chipRemove = document.getElementById('chip-remove');
+  const uploadBtn  = document.getElementById('upload-btn');
+  const btnLabel   = document.getElementById('btn-label');
+  const backendUrl = document.getElementById('backend-url');
+  const statusBar  = document.getElementById('status-bar');
+  const statusIcon = document.getElementById('status-icon');
+  const statusMsg  = document.getElementById('status-msg');
+  const results    = document.getElementById('results');
+
+  let selectedFile = null;
+
+  // ── File selection helpers ────────────────────────────────────────────────
+  function fmtSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/(1024*1024)).toFixed(2) + ' MB';
+  }
+
+  function fmtNum(n) {
+    if (n === null || n === undefined || n === '') return '—';
+    return Number(n).toLocaleString('en-IN');
+  }
+
+  function setFile(file) {
+    if (!file) return;
+    const ok = /\.(csv|xlsx|xls)$/i.test(file.name);
+    if (!ok) { setStatus('error', 'Only .csv, .xlsx, and .xls files are accepted.'); return; }
+    selectedFile = file;
+    chipName.textContent = file.name;
+    chipSize.textContent = fmtSize(file.size);
+    fileChip.classList.add('show');
+    uploadBtn.disabled = false;
+    clearStatus();
+    results.classList.remove('show');
+  }
+
+  function clearFile() {
+    selectedFile = null;
+    fileInput.value = '';
+    fileChip.classList.remove('show');
+    uploadBtn.disabled = true;
+    clearStatus();
+    results.classList.remove('show');
+  }
+
+  // ── Drag & drop ───────────────────────────────────────────────────────────
+  dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    setFile(e.dataTransfer.files[0]);
+  });
+  dropZone.addEventListener('click', e => {
+    if (e.target === browseLink || e.target === dropZone || e.target.closest('#drop-zone')) {
+      fileInput.click();
+    }
+  });
+  browseLink.addEventListener('click', e => { e.stopPropagation(); fileInput.click(); });
+  fileInput.addEventListener('change', () => setFile(fileInput.files[0]));
+  chipRemove.addEventListener('click', clearFile);
+
+  // ── Status helpers ────────────────────────────────────────────────────────
+  function setStatus(type, msg) {
+    statusBar.className = 'show ' + type;
+    statusIcon.innerHTML = type === 'info'
+      ? '<div class="spinner"></div>'
+      : type === 'ok' ? '✓' : '✕';
+    statusMsg.textContent = msg;
+  }
+  function clearStatus() {
+    statusBar.className = '';
+  }
+
+  // ── Table renderer (generic flat rows) ────────────────────────────────────
+  function renderTable(tableEl, rows) {
+    if (!rows || rows.length === 0) {
+      tableEl.innerHTML = '<tr><td style="color:var(--muted);padding:16px">No data</td></tr>';
+      return;
+    }
+    const cols = Object.keys(rows[0]);
+    let html = '<thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead><tbody>';
+    rows.forEach(row => {
+      html += '<tr>' + cols.map(c => `<td title="${row[c] ?? ''}">${row[c] ?? ''}</td>`).join('') + '</tr>';
+    });
+    html += '</tbody>';
+    tableEl.innerHTML = html;
+  }
+
+  // ── Customer preview renderer ─────────────────────────────────────────────
+  // Flattens the nested preview object into a readable table row.
+  function renderCustomerPreview(tableEl, preview) {
+    if (!preview || preview.length === 0) {
+      tableEl.innerHTML = '<tr><td style="color:var(--muted);padding:16px">No data</td></tr>';
+      return;
+    }
+    const headers = ['Customer', 'City', 'Transactions', 'Line Items', 'Total Billed', 'Collected', 'Due', 'First DC', 'First Date'];
+    let html = '<thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+    preview.forEach(c => {
+      const due       = c.Total_Due;
+      const dueClass  = (due && Number(due) > 0) ? 'due' : 'ok';
+      const dueVal    = (due !== '' && due !== null && due !== undefined) ? fmtNum(due) : '0';
+      const firstTxn  = c.first_transaction;
+      html += `<tr>
+        <td title="${c.Customer}">${c.Customer}</td>
+        <td>${c.City || '—'}</td>
+        <td class="num">${c.transaction_count}</td>
+        <td class="num">${c.item_count}</td>
+        <td class="num">₹${fmtNum(c.Total_Amount_to_be_Paid)}</td>
+        <td class="num">₹${fmtNum(c.Collection)}</td>
+        <td class="${dueClass}">₹${dueVal}</td>
+        <td>${firstTxn ? (firstTxn.DC_No || '—') : '—'}</td>
+        <td>${firstTxn ? (firstTxn.Date || '—') : '—'}</td>
+      </tr>`;
+    });
+    html += '</tbody>';
+    tableEl.innerHTML = html;
+  }
+
+  // ── Dues renderer — customers where Total_Due > 0 ─────────────────────────
+  function renderDuesPreview(tableEl, preview) {
+    const withDues = (preview || []).filter(c => c.Total_Due && Number(c.Total_Due) > 0);
+    if (withDues.length === 0) {
+      tableEl.innerHTML = '<tr><td style="color:var(--accent);padding:16px">All dues cleared ✓</td></tr>';
+      return;
+    }
+    const headers = ['Customer', 'City', 'Total Billed', 'Collected', 'Due'];
+    let html = '<thead><tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr></thead><tbody>';
+    withDues.forEach(c => {
+      html += `<tr>
+        <td title="${c.Customer}">${c.Customer}</td>
+        <td>${c.City || '—'}</td>
+        <td class="num">₹${fmtNum(c.Total_Amount_to_be_Paid)}</td>
+        <td class="num">₹${fmtNum(c.Collection)}</td>
+        <td class="due">₹${fmtNum(c.Total_Due)}</td>
+      </tr>`;
+    });
+    html += '</tbody>';
+    tableEl.innerHTML = html;
+  }
+
+  // ── Log helper ────────────────────────────────────────────────────────────
+  function addLog(msg, cls = '') {
+    const lb = document.getElementById('log-block');
+    const span = document.createElement('span');
+    span.className = 'log-line ' + cls;
+    span.textContent = '› ' + msg;
+    lb.appendChild(span);
+    lb.scrollTop = lb.scrollHeight;
+  }
+
+  // ── Upload ─────────────────────────────────────────────────────────────────
+  uploadBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    const url = backendUrl.value.trim();
+    if (!url) { setStatus('error', 'Enter a backend URL.'); return; }
+
+    // Reset UI
+    uploadBtn.disabled = true;
+    btnLabel.textContent = 'Running…';
+    results.classList.remove('show');
+    document.getElementById('log-block').innerHTML = '';
+    document.getElementById('stat-grid').innerHTML = '';
+    setStatus('info', 'Uploading file and processing pipeline…');
+
+    addLog(`File: ${selectedFile.name} (${fmtSize(selectedFile.size)})`, 'info');
+    addLog('POST → ' + url, 'info');
+
+    const form = new FormData();
+    form.append('file', selectedFile);
+
+    const t0 = performance.now();
+    try {
+      const res  = await fetch(url, { method: 'POST', body: form });
+      const data = await res.json();
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+
+      if (!res.ok) throw new Error(data.detail || 'Server error ' + res.status);
+
+      // ── Guard: ensure expected fields exist ──────────────────────────────
+      if (!data.summary) throw new Error('Unexpected response shape from server (missing summary).');
+
+      const s = data.summary;
+
+      // ── Pipeline log ─────────────────────────────────────────────────────
+      addLog(`[1/5] Loaded ${data.file_size_kb} KB into memory buffer`, 'ok');
+      addLog(`[2/5] Extracted ${s.customers} customers · ${s.transactions} transactions · ${s.line_items} line items`, 'ok');
+      addLog(`[3/5] Cleaned — types cast, mobiles normalised`, 'ok');
+      addLog(`[4/5] Reconciled — ${s.customers} customer documents`, 'ok');
+      addLog(`[5/5] Uploaded to MongoDB ✓`, 'ok');
+      addLog(`Done in ${elapsed}s`, 'ok');
+
+      setStatus('ok',
+        `Pipeline complete — ${s.customers} customers · ${s.transactions} transactions · ${s.line_items} items in ${elapsed}s`
+      );
+      document.getElementById('ts').textContent = new Date().toLocaleTimeString();
+
+      // ── Stat cards ───────────────────────────────────────────────────────
+      const stats = [
+        { val: data.file_size_kb + ' KB', key: 'File size (RAM only)' },
+        { val: s.customers,               key: 'Customers' },
+        { val: s.transactions,            key: 'Transactions' },
+        { val: s.line_items,              key: 'Line items' },
+        { val: s.customers_with_dues,     key: 'With outstanding dues' },
+        { val: elapsed + 's',             key: 'Total time' },
+      ];
+      document.getElementById('stat-grid').innerHTML = stats.map(st =>
+        `<div class="stat-card"><div class="stat-val">${st.val}</div><div class="stat-key">${st.key}</div></div>`
+      ).join('');
+
+      // ── Preview tables ───────────────────────────────────────────────────
+      document.getElementById('customers-badge').textContent = `${s.customers} total`;
+      document.getElementById('dues-badge').textContent      = `${s.customers_with_dues} outstanding`;
+
+      renderCustomerPreview(document.getElementById('customers-table'), data.preview);
+      renderDuesPreview(document.getElementById('dues-table'), data.preview);
+
+      results.classList.add('show');
+
+    } catch (err) {
+      addLog('Error: ' + err.message, 'err');
+      setStatus('error', err.message);
+    } finally {
+      uploadBtn.disabled = false;
+      btnLabel.textContent = 'Run Pipeline';
+    }
+  });
+</script>
+</body>
+</html>
