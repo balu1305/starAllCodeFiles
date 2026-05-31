@@ -3,50 +3,59 @@
  * ──────────────────────
  * Step 3 of 5 — Clean
  *
- * Type-casts string values to their proper types (numbers, mobile strings).
- * Applies sensible defaults (0 for missing numeric fields).
+ * Type-casts every string value in the nested customer document to its
+ * proper JS type:
+ *   • Customer-level: Mobile → cleaned string; numeric due/collection fields
+ *   • Item-level: Copies, Returns, Net_Copies, Rate, Amount → numbers
+ *
  * Reports null counts for observability.
  */
 
 const { toNumeric, cleanMobile } = require('../utils/helpers');
 
 /**
- * @param {object[]} records       - Raw line-item records from extract()
- * @param {object[]} recordsOfCash - Raw dues records from extract()
- * @returns {{ df: object[], df2: object[] }}
+ * @param {object[]} customers - Raw customer documents from extract()
+ * @returns {object[]}         - Cleaned customer documents
  */
-function clean(records, recordsOfCash) {
+function clean(customers) {
   console.log('[3/5] Cleaning data …');
 
-  // ── Clean line-item records ────────────────────────────────────────────────
-  const df = records.map(r => ({
-    ...r,
-    Copies:     toNumeric(r.Copies),
-    Returns:    toNumeric(r.Returns)    ?? 0,
-    Net_Copies: toNumeric(r.Net_Copies),
-    Rate:       toNumeric(r.Rate)       ?? 0,
-    Amount:     toNumeric(r.Amount)     ?? 0,
-    Mobile:     cleanMobile(r.Mobile),
-  }));
-
-  // ── Clean dues records ─────────────────────────────────────────────────────
-  const df2 = recordsOfCash.map(r => ({
-    ...r,
-    Collection:                toNumeric(r.Collection),
-    'Total Due':               toNumeric(r['Total Due']),
-    'Total Amount to be Paid': toNumeric(r['Total Amount to be Paid']),
-    Mobile:                    cleanMobile(r.Mobile),
+  const cleaned = customers.map(c => ({
+    ...c,
+    Mobile:                  cleanMobile(c.Mobile),
+    Total_Amount_to_be_Paid: toNumeric(c.Total_Amount_to_be_Paid),
+    Collection:              toNumeric(c.Collection) ?? 0,
+    Total_Due:               toNumeric(c.Total_Due)  ?? 0,
+    Transactions: c.Transactions.map(txn => ({
+      ...txn,
+      Items: txn.Items.map(item => ({
+        ...item,
+        Copies:     toNumeric(item.Copies),
+        Returns:    toNumeric(item.Returns)    ?? 0,
+        Net_Copies: toNumeric(item.Net_Copies),
+        Rate:       toNumeric(item.Rate)       ?? 0,
+        Amount:     toNumeric(item.Amount)     ?? 0,
+      })),
+    })),
   }));
 
   // ── Observability ──────────────────────────────────────────────────────────
-  const countNulls = arr =>
-    arr.reduce((acc, row) =>
-      acc + Object.values(row).filter(v => v === null || v === undefined).length, 0);
+  let nullCount = 0;
+  for (const c of cleaned) {
+    for (const [, v] of Object.entries(c)) {
+      if (v === null || v === undefined) nullCount++;
+    }
+    for (const txn of c.Transactions) {
+      for (const item of txn.Items) {
+        for (const [, v] of Object.entries(item)) {
+          if (v === null || v === undefined) nullCount++;
+        }
+      }
+    }
+  }
 
-  console.log(`      Records: ${df.length} rows  | nulls: ${countNulls(df)}`);
-  console.log(`      Dues:    ${df2.length} rows  | nulls: ${countNulls(df2)}`);
-
-  return { df, df2 };
+  console.log(`      ${cleaned.length} customers | null count across all fields: ${nullCount}`);
+  return cleaned;
 }
 
 module.exports = clean;

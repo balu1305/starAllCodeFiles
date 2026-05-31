@@ -3,92 +3,143 @@
  * ────────────────────────
  * Step 2 of 5 — Extract
  *
- * Walks the raw row array produced by load.js and produces:
- *   • records      — line-item rows (one per title / book sold)
- *   • recordsOfCash — dues summary rows (one per customer bill)
+ * Walks the raw row array produced by load.js and produces one document
+ * per customer in the following shape:
  *
- * The raw spreadsheet has a custom layout where context fields
- * (Date, Bill No, Customer, etc.) appear above or beside the line items,
- * so we track "current" values as we iterate.
+ *   {
+ *     Customer, Address, Contact, Mobile, City,
+ *     Total_Amount_to_be_Paid, Collection, Total_Due,
+ *     Transactions: [
+ *       {
+ *         Date, DC_No, Bill_No,
+ *         Items: [{ Title, Copies, Returns, Net_Copies, Rate, Amount }]
+ *       }
+ *     ]
+ *   }
+ *
+ * A new customer section is identified by a "Customer:" label in col 0.
+ * A new transaction is identified by a "DC-" value in col 1.
+ * The matching Bill_No (B.No.xxx) appears on the subsequent line in col 1.
+ * The dues summary is captured from the "Total Due" sentinel row.
  */
 
 const { parseDate } = require('../utils/helpers');
 
 /**
  * @param {Array<Array<string|null>>} rows
- * @returns {{ records: object[], recordsOfCash: object[] }}
+ * @returns {{ customers: object[] }}
  */
 function extract(rows) {
   console.log('[2/5] Extracting records …');
 
-  const records       = [];
-  const recordsOfCash = [];
+  const customers = [];
 
-  // Context carried forward as we scan rows
-  let currentDate     = null;
-  let currentBill     = null;
-  let currentCustomer = null;
-  let currentCity     = null;
-  let currentAddress  = null;
-  let currentContact  = null;
-  let currentMobile   = null;
+  /** @type {object|null} customer document being built */
+  let current = null;
+  /** @type {object|null} transaction being built */
+  let currentTxn = null;
+  /** @type {Date|null} */
+  let currentDate = null;
 
+  // ── Flush helpers ───────────────────────────────────────────────────────────
+
+  /** Push the current transaction (if it has items) onto current.Transactions. */
+  function flushTxn() {
+    if (currentTxn && currentTxn.Items.length > 0 && current) {
+      current.Transactions.push(currentTxn);
+    }
+    currentTxn = null;
+  }
+
+  /** Flush the current transaction then push the customer onto customers[]. */
+  function flushCustomer() {
+    flushTxn();
+    if (current) customers.push(current);
+    current = null;
+  }
+
+  // ── Main loop ───────────────────────────────────────────────────────────────
   for (let idx = 0; idx < rows.length; idx++) {
     const row     = rows[idx];
     const prevRow = idx > 0 ? rows[idx - 1] : row;
+    const cell0   = String(row[0] ?? '').trim();
+    const cell1   = String(row[1] ?? '').trim();
 
-    // ── Detect date in col 0 ─────────────────────────────────────────────────
+    // ── Start of a new customer block ─────────────────────────────────────────
+    if (cell0 === 'Customer:') {
+      flushCustomer();
+      currentDate = null;
+      current = {
+        Customer:                row[1],
+        Address:                 null,
+        Contact:                 null,
+        Mobile:                  null,
+        City:                    null,
+        Total_Amount_to_be_Paid: null,
+        Collection:              null,
+        Total_Due:               null,
+        Transactions:            [],
+      };
+      continue;
+    }
+
+    // Skip rows that appear before the first Customer: label
+    if (!current) continue;
+
+    // ── Customer metadata fields ───────────────────────────────────────────────
+    if (cell0 === 'Address:') { current.Address = row[1]; continue; }
+    if (cell0 === 'Contact:') { current.Contact = row[1]; continue; }
+    if (cell0 === 'Mobile:')  { current.Mobile  = row[1]; continue; }
+    if (cell0 === 'City:')    { current.City    = row[1]; continue; }
+
+    // ── Date detection (DD.MM.YYYY in col 0) ──────────────────────────────────
     const parsedDate = parseDate(row[0]);
     if (parsedDate) currentDate = parsedDate;
 
-    // ── Detect bill number (contains "DC-") ──────────────────────────────────
-    if (row[1] && String(row[1]).includes('DC-')) {
-      currentBill = row[1];
+    // ── Dues summary ("Total Due" appears anywhere in the row) ────────────────
+    const hasTotalDue = row.some(v => String(v ?? '').trim() === 'Total Due');
+    if (hasTotalDue) {
+      // The row immediately above contains the running totals.
+      current.Total_Amount_to_be_Paid = prevRow[7];
+      current.Collection              = prevRow[8];
+      current.Total_Due               = row[8];
+      continue;
     }
 
-    // ── Detect labelled context fields (col 0 = label, col 1 = value) ────────
-    const cell = String(row[0] ?? '').trim();
-    if      (cell === 'Customer:') currentCustomer = row[1];
-    else if (cell === 'Mobile:')   currentMobile   = row[1];
-    else if (cell === 'City:')     currentCity     = row[1];
-    else if (cell === 'Address:')  currentAddress  = row[1];
-    else if (cell === 'Contact:')  currentContact  = row[1];
-
-    // ── Detect dues summary row — "Total Due" appears anywhere in the row ─────
-    const rowHasTotalDue = row.some(v => String(v ?? '').trim() === 'Total Due');
-    if (rowHasTotalDue) {
-      recordsOfCash.push({
-        Customer:                  currentCustomer,
-        Address:                   currentAddress,
-        Contact:                   currentContact,
-        Mobile:                    currentMobile,
-        City:                      currentCity,
-        'Total Amount to be Paid': prevRow[7],
-        Collection:                prevRow[8],
-        'Total Due':               row[8],
-      });
+    // ── DC number in col 1 → start a new transaction ──────────────────────────
+    if (cell1.includes('DC-')) {
+      flushTxn();
+      currentTxn = {
+        Date:    currentDate,
+        DC_No:   cell1,
+        Bill_No: null,
+        Items:   [],
+      };
+    } else if (cell1.startsWith('B.No.')) {
+      // Bill number (B.No.) always follows its DC on the next line.
+      // Attach it to the open transaction rather than starting a new one.
+      if (currentTxn) currentTxn.Bill_No = cell1;
     }
 
-    // ── Detect line-item rows (col 2 is non-empty) ────────────────────────────
+    // ── Line item: col 2 contains a non-empty title ───────────────────────────
     const title = row[2];
     if (title !== null && title !== undefined && String(title).trim() !== '') {
       const t = String(title).trim();
-      const skipTitles = new Set(['Title', 'B.F']);
-      const skipContains = ['Cash', 'Cheque'];
 
-      const shouldSkip =
-        skipTitles.has(t) ||
+      // Rows to skip: header rows, carry-forward markers, cash/cheque entries
+      const skipExact    = new Set(['Title', 'B.F']);
+      const skipContains = ['Cash', 'Cheque'];
+      const shouldSkip   =
+        skipExact.has(t) ||
         skipContains.some(s => t.includes(s));
 
       if (!shouldSkip) {
-        records.push({
-          Date:       currentDate,
-          Bill_No:    currentBill,
-          Customer:   currentCustomer,
-          Address:    currentAddress,
-          Contact:    currentContact,
-          Mobile:     currentMobile,
-          City:       currentCity,
+        // If we see items with no open transaction (edge case), open one.
+        if (!currentTxn) {
+          currentTxn = { Date: currentDate, DC_No: null, Bill_No: null, Items: [] };
+        }
+
+        currentTxn.Items.push({
           Title:      title,
           Copies:     row[3],
           Returns:    row[4],
@@ -100,9 +151,18 @@ function extract(rows) {
     }
   }
 
-  console.log(`      ${records.length} line-item records extracted`);
-  console.log(`      ${recordsOfCash.length} dues records extracted`);
-  return { records, recordsOfCash };
+  // Flush the last customer
+  flushCustomer();
+
+  // ── Observability ──────────────────────────────────────────────────────────
+  const totalTxns  = customers.reduce((a, c) => a + c.Transactions.length, 0);
+  const totalItems = customers.reduce(
+    (a, c) => a + c.Transactions.reduce((b, t) => b + t.Items.length, 0), 0
+  );
+  console.log(`      ${customers.length} customers extracted`);
+  console.log(`      ${totalTxns} transactions, ${totalItems} line items`);
+
+  return { customers };
 }
 
 module.exports = extract;

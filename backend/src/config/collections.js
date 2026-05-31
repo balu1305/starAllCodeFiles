@@ -6,7 +6,6 @@
  */
 
 module.exports = {
-  COL_RECORDS: 'records',
-  COL_DUES:    'records of dues',
-  BATCH_SIZE:  parseInt(process.env.BATCH_SIZE, 10) || 1000,
+  COL_CUSTOMERS: 'customers',
+  BATCH_SIZE:    parseInt(process.env.BATCH_SIZE, 10) || 1000,
 };

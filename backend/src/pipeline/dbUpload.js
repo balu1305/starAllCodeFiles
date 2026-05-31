@@ -3,13 +3,21 @@
  * ─────────────────────────
  * Step 5 of 5 — Upload
  *
- * Inserts cleaned records into MongoDB using the shared Db instance.
- * Writes are batched to avoid exceeding the 16 MB BSON document limit
- * and to reduce memory spikes on large files.
+ * Inserts customer documents (each containing nested transactions and
+ * line items) into a single MongoDB collection in batches.
+ *
+ * Each document shape:
+ *   {
+ *     Customer, Address, Contact, Mobile, City,
+ *     Total_Amount_to_be_Paid, Collection, Total_Due,
+ *     Transactions: [
+ *       { Date, DC_No, Bill_No, Items: [{ Title, Copies, Returns, Net_Copies, Rate, Amount }] }
+ *     ]
+ *   }
  */
 
-const { getDb }                     = require('../config/db');
-const { COL_RECORDS, COL_DUES, BATCH_SIZE } = require('../config/collections');
+const { getDb }                         = require('../config/db');
+const { COL_CUSTOMERS, BATCH_SIZE }     = require('../config/collections');
 
 /**
  * Insert an array of documents into a collection in batches.
@@ -24,24 +32,16 @@ async function batchInsert(col, docs, batchSize) {
 }
 
 /**
- * @param {object[]} df   - Final line-item records
- * @param {object[]} df2  - Final dues records
+ * @param {object[]} customers - Final customer documents
  */
-async function dbUpload(df, df2) {
+async function dbUpload(customers) {
   console.log('[5/5] Uploading to MongoDB …');
 
-  const db = await getDb();
+  const db  = await getDb();
+  const col = db.collection(COL_CUSTOMERS);
 
-  // ── Records ────────────────────────────────────────────────────────────────
-  const recCol = db.collection(COL_RECORDS);
-  await batchInsert(recCol, df, BATCH_SIZE);
-  console.log(`      Inserted ${df.length} documents → '${COL_RECORDS}'`);
-
-  // ── Dues ───────────────────────────────────────────────────────────────────
-  const dueCol = db.collection(COL_DUES);
-  await batchInsert(dueCol, df2, BATCH_SIZE);
-  console.log(`      Inserted ${df2.length} documents → '${COL_DUES}'`);
-
+  await batchInsert(col, customers, BATCH_SIZE);
+  console.log(`      Inserted ${customers.length} documents → '${COL_CUSTOMERS}'`);
   console.log('      Done ✓');
 }
 

@@ -3,63 +3,64 @@
  * ──────────────────────────
  * Step 4 of 5 — Reconcile
  *
- * Ensures every customer that appears in the dues collection also has
- * at least one entry in the records collection.
- * If a customer is only in dues (e.g. balance carried forward with no new
- * transactions), a zero-value placeholder record is inserted so foreign-key
- * style joins work downstream.
+ * With the new nested schema, all line items and dues live inside the same
+ * customer document, so the old cross-collection integrity check is no
+ * longer required.
+ *
+ * This step now:
+ *   1. Drops only rows that have NO customer name — these are genuine blank
+ *      spacer rows produced by the spreadsheet layout, not real customers.
+ *      NOTE: customers with zero transactions and zero dues ARE kept.
+ *            They represent real contacts with no activity in this period.
+ *   2. Replaces all undefined values with null so MongoDB never silently
+ *      drops keys (sanitizeDocs applied recursively through the nested tree).
+ *   3. Logs a full breakdown for observability.
  */
 
 const { sanitizeDocs } = require('../utils/helpers');
 
 /**
- * @param {object[]} df   - Cleaned line-item records
- * @param {object[]} df2  - Cleaned dues records
- * @returns {{ df: object[], df2: object[] }}
+ * @param {object[]} customers - Cleaned customer documents
+ * @returns {object[]}         - Reconciled, sanitized customer documents
  */
-function reconcile(df, df2) {
+function reconcile(customers) {
   console.log('[4/5] Reconciling customers …');
 
-  const recordCustomers = new Set(df.map(r  => r.Customer));
-  const duesCustomers   = new Set(df2.map(r => r.Customer));
-
-  const missing = [...duesCustomers].filter(c => !recordCustomers.has(c));
-
-  if (missing.length > 0) {
-    console.log(`      Found ${missing.length} customer(s) in dues but not in records — inserting placeholders`);
-
-    const placeholders = df2
-      .filter(r => missing.includes(r.Customer))
-      .map(r => ({
-        Date:       new Date('1970-01-01'),
-        Bill_No:    null,
-        Customer:   r.Customer,
-        Address:    r.Address,
-        Contact:    r.Contact,
-        Mobile:     r.Mobile,
-        City:       r.City,
-        Title:      null,
-        Copies:     0,
-        Returns:    0,
-        Net_Copies: 0,
-        Rate:       0,
-        Amount:     0,
-      }));
-
-    df = [...df, ...placeholders];
-  } else {
-    console.log('      All customers are consistent ✓');
+  // ── Drop only truly blank rows (no customer name at all) ───────────────────
+  const before = customers.length;
+  const valid  = customers.filter(c => c.Customer && String(c.Customer).trim() !== '');
+  const dropped = before - valid.length;
+  if (dropped > 0) {
+    console.log(`      Dropped ${dropped} unnamed/blank row(s)`);
   }
 
-  // Replace undefined → null so MongoDB doesn't silently drop keys
-  df  = sanitizeDocs(df);
-  df2 = sanitizeDocs(df2);
+  // ── Sanitize (undefined → null) recursively through the nested tree ────────
+  const sanitized = valid.map(c => ({
+    ...c,
+    Transactions: c.Transactions.map(txn => ({
+      ...txn,
+      Items: sanitizeDocs(txn.Items),
+    })),
+  }));
+  const result = sanitizeDocs(sanitized);
 
-  const uniqueCustomers = new Set(df.map(r => r.Customer)).size;
-  console.log(`      Final records: ${df.length} rows`);
-  console.log(`      Unique customers: ${uniqueCustomers}`);
+  // ── Stats ──────────────────────────────────────────────────────────────────
+  const withTxns   = result.filter(c => c.Transactions.length > 0).length;
+  const noTxns     = result.filter(c => c.Transactions.length === 0).length;
+  const withDues   = result.filter(c => (c.Total_Due ?? 0) > 0).length;
+  const totalTxns  = result.reduce((a, c) => a + c.Transactions.length, 0);
+  const totalItems = result.reduce(
+    (a, c) => a + c.Transactions.reduce((b, t) => b + t.Items.length, 0), 0
+  );
 
-  return { df, df2 };
+  console.log(`      Customers total      : ${result.length}`);
+  console.log(`        with transactions  : ${withTxns}`);
+  console.log(`        no transactions    : ${noTxns}  (zero-activity contacts — kept)`);
+  console.log(`        with outstanding dues: ${withDues}`);
+  console.log(`      Transactions         : ${totalTxns}`);
+  console.log(`      Line items           : ${totalItems}`);
+
+  return result;
 }
 
 module.exports = reconcile;
