@@ -5,7 +5,7 @@
  *
  * Called by: POST /upload
  *
- * Pipeline output shape (one document per customer):
+ * Pipeline output shape (one document per customer):\
  *   {
  *     Customer, Address, Contact, Mobile, City,
  *     Total_Amount_to_be_Paid, Collection, Total_Due,
@@ -59,8 +59,9 @@ function makePreview(customers, n = 5) {
 /**
  * POST /upload
  *
- * Expects a multipart/form-data request with a single field named "file"
- * containing a .csv, .xlsx, or .xls spreadsheet.
+ * Expects a multipart/form-data request with:
+ *   - "file"     : the .csv, .xlsx, or .xls spreadsheet
+ *   - "pipeline" : the name to use as the MongoDB collection (e.g. "customers")
  */
 async function handleUpload(req, res, next) {
   try {
@@ -68,8 +69,18 @@ async function handleUpload(req, res, next) {
     console.log('  StarQ ETL Pipeline');
     console.log('='.repeat(50));
 
+    // ── Resolve collection name from the frontend form field ───────────────
+    const collectionName = (req.body.pipeline || '').trim();
+    if (!collectionName) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Missing required field: "pipeline" (collection name).',
+      });
+    }
+
     const fileSizeKb = (req.file.buffer.length / 1024).toFixed(2);
-    console.log(`  File: ${req.file.originalname}  (${fileSizeKb} KB)`);
+    console.log(`  File      : ${req.file.originalname}  (${fileSizeKb} KB)`);
+    console.log(`  Collection: ${collectionName}`);
 
     // ── Run the pipeline ───────────────────────────────────────────────────
     const rows               = load(req.file.buffer, req.file.originalname);
@@ -77,7 +88,8 @@ async function handleUpload(req, res, next) {
     const cleaned            = clean(raw);
     const final              = reconcile(cleaned);
 
-    await dbUpload(final);
+    // Pass the selected collection name to dbUpload
+    await dbUpload(final, collectionName);
 
     console.log('='.repeat(50));
     console.log('  Pipeline complete.');
@@ -94,10 +106,11 @@ async function handleUpload(req, res, next) {
       status:       'success',
       filename:     req.file.originalname,
       file_size_kb: parseFloat(fileSizeKb),
+      collection:   collectionName,
       summary: {
-        customers:         final.length,
-        transactions:      totalTxns,
-        line_items:        totalItems,
+        customers:           final.length,
+        transactions:        totalTxns,
+        line_items:          totalItems,
         customers_with_dues: withDues,
         columns: Object.keys(final[0] || {}).filter(k => k !== 'Transactions'),
       },

@@ -4,7 +4,8 @@
  * Step 5 of 5 — Upload
  *
  * Inserts customer documents (each containing nested transactions and
- * line items) into a single MongoDB collection in batches.
+ * line items) into a MongoDB collection whose name comes from the
+ * frontend form selection (passed in by the controller).
  *
  * Each document shape:
  *   {
@@ -16,8 +17,8 @@
  *   }
  */
 
-const { getDb }                         = require('../config/db');
-const { COL_CUSTOMERS, BATCH_SIZE }     = require('../config/collections');
+const { getDb }        = require('../config/db');
+const { BATCH_SIZE }   = require('../config/collections');
 
 /**
  * Insert an array of documents into a collection in batches.
@@ -32,16 +33,23 @@ async function batchInsert(col, docs, batchSize) {
 }
 
 /**
- * @param {object[]} customers - Final customer documents
+ * Upload customers to MongoDB using the collection name selected in the frontend.
+ *
+ * @param {object[]} customers      - Final customer documents from the pipeline
+ * @param {string}   collectionName - MongoDB collection name (from req.body.pipeline)
  */
-async function dbUpload(customers) {
-  console.log('[5/5] Uploading to MongoDB …');
+async function dbUpload(customers, collectionName) {
+  if (!collectionName) {
+    throw new Error('dbUpload: collectionName is required.');
+  }
+
+  console.log(`[5/5] Uploading to MongoDB collection "${collectionName}" …`);
 
   const db  = await getDb();
-  const col = db.collection(COL_CUSTOMERS);
+  const col = db.collection(collectionName);
 
   await batchInsert(col, customers, BATCH_SIZE);
-  console.log(`      Inserted ${customers.length} documents → '${COL_CUSTOMERS}'`);
+  console.log(`      Inserted ${customers.length} documents → '${collectionName}'`);
   console.log('      Done ✓');
 }
 
